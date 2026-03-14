@@ -20,6 +20,25 @@ def _primeiro_valido(lista):
     return ""
 
 
+def extrair_patch_consolidado(relatorio: dict) -> str:
+    if not isinstance(relatorio, dict):
+        return ""
+
+    patch = relatorio.get("patch_recomendado", "")
+    if patch and str(patch).strip():
+        return patch
+
+    analises = relatorio.get("analises_por_ia", {})
+    if isinstance(analises, dict):
+        for _, dados in analises.items():
+            if isinstance(dados, dict):
+                candidato = dados.get("patch_recomendado", "") or dados.get("codigo_sugerido", "")
+                if candidato and str(candidato).strip():
+                    return candidato
+
+    return ""
+
+
 def montar_relatorio_final(resultados: dict) -> dict:
     agora = datetime.now().isoformat()
 
