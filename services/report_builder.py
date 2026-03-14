@@ -102,6 +102,7 @@ def montar_relatorio_final(resultados: dict) -> dict:
             "resumo_sugestao": sugestao_final.get("resumo", ""),
             "motivo_sugestao": sugestao_final.get("motivo", ""),
             "tipo_sugestao": sugestao_final.get("tipo", ""),
+            "fonte_geradora": sugestao_final.get("fonte_geradora", ""),
             "pontos_fortes": pontos_fortes,
             "pontos_fracos": pontos_fracos,
             "riscos": riscos,
