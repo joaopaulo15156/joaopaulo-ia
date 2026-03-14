@@ -1,3 +1,4 @@
+import os
 import json
 from google import genai
 
@@ -16,7 +17,8 @@ def _extrair_json(texto: str) -> dict:
     return json.loads(texto)
 
 
-def revisar_codigo_gemini(codigo: str, api_key: str) -> dict:
+def revisar_codigo_gemini(codigo: str) -> dict:
+    api_key = os.getenv("GEMINI_API_KEY")
     if not api_key:
         raise ValueError("GEMINI_API_KEY não encontrada.")
 
@@ -43,7 +45,7 @@ Código:
 """
 
     response = client.models.generate_content(
-        model="gemini-3-flash-preview",
+        model=os.getenv("GEMINI_REVIEW_MODEL", "gemini-3-flash-preview"),
         contents=prompt,
     )
 
