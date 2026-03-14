@@ -25,11 +25,9 @@ from services.code_review import (
     executar_modo_programador_automatico,
 )
 from services.report_builder import montar_relatorio_final
+from services.error_solver import resolver_erro_multi_ia
 
 
-# =========================
-# CONFIG
-# =========================
 TIMEZONE = "America/Sao_Paulo"
 
 MODEL_TEXT = os.getenv("MODEL_TEXT", "llama-3.3-70b-versatile")
@@ -169,16 +167,10 @@ div[data-testid="stMetric"] {
 """
 
 
-# =========================
-# STREAMLIT CONFIG
-# =========================
 st.set_page_config(page_title="João Paulo-IA", page_icon="🧠", layout="wide")
 st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
 
 
-# =========================
-# SECRETS
-# =========================
 def get_secret(name: str, default: str = "") -> str:
     try:
         if name in st.secrets:
@@ -192,9 +184,6 @@ def chave_ok(name: str) -> bool:
     return bool(get_secret(name, "").strip())
 
 
-# =========================
-# CLIENTES
-# =========================
 @st.cache_resource
 def get_http() -> requests.Session:
     retry = Retry(
@@ -209,7 +198,7 @@ def get_http() -> requests.Session:
     session = requests.Session()
     session.mount("http://", adapter)
     session.mount("https://", adapter)
-    session.headers.update({"User-Agent": "JoaoPaulo-IA/3.5"})
+    session.headers.update({"User-Agent": "JoaoPaulo-IA/3.6"})
     return session
 
 
@@ -230,9 +219,6 @@ def get_supabase() -> Client:
 HTTP = get_http()
 
 
-# =========================
-# HELPERS
-# =========================
 def agora_sp() -> datetime:
     return datetime.now(ZoneInfo(TIMEZONE))
 
@@ -383,9 +369,6 @@ def provider_status(provider: str):
     return False, "CHAVE_DESCONHECIDA"
 
 
-# =========================
-# SUPABASE
-# =========================
 def supabase_disponivel() -> bool:
     return chave_ok("SUPABASE_URL") and chave_ok("SUPABASE_ANON_KEY")
 
@@ -411,7 +394,6 @@ def db_insert_message(session_id: str, role: str, content: str):
 def db_load_messages(session_id: str, limit: int = 50) -> list[dict]:
     if not supabase_disponivel():
         return []
-
     supabase = get_supabase()
     resp = (
         supabase.table("chat_messages")
@@ -427,7 +409,6 @@ def db_load_messages(session_id: str, limit: int = 50) -> list[dict]:
 def db_upsert_memory(memory_key: str, memory_value: dict):
     if not supabase_disponivel():
         return
-
     supabase = get_supabase()
     supabase.table("user_memory").upsert({
         "memory_key": memory_key,
@@ -439,7 +420,6 @@ def db_upsert_memory(memory_key: str, memory_value: dict):
 def db_get_memory(memory_key: str) -> dict:
     if not supabase_disponivel():
         return {}
-
     supabase = get_supabase()
     resp = (
         supabase.table("user_memory")
@@ -456,7 +436,6 @@ def db_get_memory(memory_key: str) -> dict:
 def db_save_daily_report(report_date: str, report_json: dict):
     if not supabase_disponivel():
         return
-
     supabase = get_supabase()
     supabase.table("daily_reports").upsert({
         "report_date": report_date,
@@ -467,7 +446,6 @@ def db_save_daily_report(report_date: str, report_json: dict):
 def db_list_reports(limit: int = 15):
     if not supabase_disponivel():
         return []
-
     supabase = get_supabase()
     resp = (
         supabase.table("daily_reports")
@@ -479,9 +457,56 @@ def db_list_reports(limit: int = 15):
     return resp.data or []
 
 
-# =========================
-# PESQUISA
-# =========================
+def db_save_ia_error(
+    origem: str,
+    ia_que_falhou: str,
+    tipo_erro: str,
+    mensagem_erro: str,
+    codigo_analisado: str,
+    relatorio_json: dict | None = None,
+    status_resolucao: str = "pendente",
+):
+    if not supabase_disponivel():
+        return
+
+    supabase = get_supabase()
+    supabase.table("ia_error_logs").insert({
+        "origem": origem,
+        "ia_que_falhou": ia_que_falhou,
+        "tipo_erro": tipo_erro,
+        "mensagem_erro": mensagem_erro,
+        "codigo_analisado": codigo_analisado,
+        "relatorio_json": relatorio_json or {},
+        "status_resolucao": status_resolucao,
+    }).execute()
+
+
+def db_list_ia_errors(limit: int = 20):
+    if not supabase_disponivel():
+        return []
+
+    supabase = get_supabase()
+    resp = (
+        supabase.table("ia_error_logs")
+        .select("*")
+        .order("created_at", desc=True)
+        .limit(limit)
+        .execute()
+    )
+    return resp.data or []
+
+
+def db_update_ia_error_report(error_id: int, relatorio_json: dict, status_resolucao: str = "resolvido"):
+    if not supabase_disponivel():
+        return
+
+    supabase = get_supabase()
+    supabase.table("ia_error_logs").update({
+        "relatorio_json": relatorio_json,
+        "status_resolucao": status_resolucao,
+    }).eq("id", error_id).execute()
+
+
 @st.cache_data(ttl=600, show_spinner=False)
 def pesquisar_google(pergunta: str, api_key: str, deep_search: bool = False, max_results: int = 6):
     q = build_search_query(pergunta, deep_search)
@@ -531,9 +556,6 @@ def pesquisar_google_news(pergunta: str, api_key: str, max_results: int = 6):
     return resultados
 
 
-# =========================
-# GROQ
-# =========================
 def gerar_resposta_texto(client: Groq, messages: list[dict]) -> str:
     resp = client.chat.completions.create(
         model=MODEL_TEXT,
@@ -599,9 +621,6 @@ def analisar_imagem(client: Groq, uploaded_file, pergunta_usuario: str) -> str:
     return resp.choices[0].message.content
 
 
-# =========================
-# IMAGEM
-# =========================
 def gerar_imagem_openai(prompt: str):
     client = OpenAI(api_key=get_secret("OPENAI_API_KEY"))
     result = client.images.generate(
@@ -659,9 +678,6 @@ def gerar_imagem(prompt: str, provedor: str):
     raise ValueError("Provedor de imagem inválido.")
 
 
-# =========================
-# INIT
-# =========================
 if not chave_ok("GROQ_API_KEY"):
     st.error("GROQ_API_KEY não encontrada.")
     st.stop()
@@ -689,24 +705,17 @@ if "segunda_opiniao" not in st.session_state:
     st.session_state.segunda_opiniao = ""
 
 
-# =========================
-# HEADER
-# =========================
 st.markdown(
     f"""
     <div class="jp-hero">
-        <div class="jp-title">🧠 João Paulo-IA 3.5</div>
-        <div class="jp-sub">Chat, imagem, áudio, PDF e modo programador automático com validação multi-IA.</div>
+        <div class="jp-title">🧠 João Paulo-IA 3.6</div>
+        <div class="jp-sub">Chat, imagem, áudio, PDF, modo programador e resolução automática de erros da IA.</div>
         <div class="jp-pill">Desenvolvida por João Paulo • Data atual: {data_longa_ptbr()}</div>
     </div>
     """,
     unsafe_allow_html=True,
 )
 
-
-# =========================
-# SIDEBAR
-# =========================
 with st.sidebar:
     st.header("Configurações")
 
@@ -740,13 +749,9 @@ with st.sidebar:
         st.rerun()
 
 
-# =========================
-# TABS
-# =========================
 aba_chat, aba_imagem, aba_gerar_img, aba_arquivos, aba_dev = st.tabs(
     ["💬 Conversar", "🖼 Analisar imagem", "🎨 Gerar imagem", "📄 PDF e histórico", "🛠 Programador"]
 )
-
 
 with aba_chat:
     st.markdown(
@@ -889,7 +894,6 @@ with aba_chat:
         st.markdown("### Segunda opinião")
         st.markdown(st.session_state.segunda_opiniao)
 
-
 with aba_imagem:
     uploaded_image = st.file_uploader(
         "Envie uma imagem",
@@ -922,7 +926,6 @@ with aba_imagem:
             except Exception as e:
                 st.error(f"Erro ao analisar imagem: {e}")
 
-
 with aba_gerar_img:
     prompt_imagem = st.text_area(
         "Descreva a imagem que você quer criar",
@@ -947,7 +950,6 @@ with aba_gerar_img:
 
             except Exception as e:
                 st.error(f"Erro ao gerar imagem: {e}")
-
 
 with aba_arquivos:
     ultima = st.session_state.ultima_resposta or "Ainda não há resposta para exportar."
@@ -980,7 +982,6 @@ with aba_arquivos:
         mime="application/json",
     )
 
-
 with aba_dev:
     admin_password = get_secret("ADMIN_PASSWORD", "")
     senha = st.text_input("Senha do programador", type="password")
@@ -997,8 +998,8 @@ with aba_dev:
             <div class="jp-card-strong">
                 <div class="jp-section-title">🛠 Modo Programador Inteligente</div>
                 <div class="small-muted">
-                    Você pode revisar código manualmente ou apertar um botão para a IA gerar uma melhoria,
-                    mandar para várias IAs avaliarem e só aprovar quando realmente compensar.
+                    Você pode revisar código manualmente, gerar melhorias automáticas
+                    e resolver automaticamente erros que a própria IA encontrar.
                 </div>
                 <div class="jp-grid">
                     <div class="jp-mini">
@@ -1010,8 +1011,8 @@ with aba_dev:
                         Geração automática de melhoria
                     </div>
                     <div class="jp-mini">
-                        <strong>Resultado</strong>
-                        Relatório técnico pronto
+                        <strong>Modo 3</strong>
+                        Erros da IA salvos e analisados
                     </div>
                 </div>
             </div>
@@ -1021,7 +1022,7 @@ with aba_dev:
 
         modo_programador = st.radio(
             "Escolha o modo",
-            ["Manual", "Automático"],
+            ["Manual", "Automático", "Erros da IA"],
             horizontal=True,
         )
 
@@ -1084,9 +1085,21 @@ with aba_dev:
                         )
 
                     except Exception as e:
+                        erro_txt = str(e)
+                        try:
+                            db_save_ia_error(
+                                origem="modo_programador_manual",
+                                ia_que_falhou="desconhecida",
+                                tipo_erro="analise_manual",
+                                mensagem_erro=erro_txt,
+                                codigo_analisado=codigo_dev,
+                            )
+                        except Exception:
+                            pass
+
                         st.error(f"Erro na análise multi-IA: {e}")
 
-        else:
+        elif modo_programador == "Automático":
             st.markdown("## Geração automática de melhoria")
             st.caption("Você aperta um botão e a IA tenta encontrar sozinha uma melhoria que realmente compense.")
 
@@ -1157,6 +1170,7 @@ with aba_dev:
                         st.write(f"**Melhor ação agora:** {relatorio_final.get('melhor_acao_agora', '-')}")
                         st.write(f"**Sugestão escolhida:** {relatorio_final.get('titulo_sugestao', '-')}")
                         st.write(f"**Tipo da sugestão:** {relatorio_final.get('tipo_sugestao', '-')}")
+                        st.write(f"**Fonte geradora:** {relatorio_final.get('fonte_geradora', '-')}")
                         st.write(f"**Onde mexer primeiro:** {relatorio_final.get('onde_mexer_primeiro', '-')}")
 
                         st.markdown("#### Pontos fortes")
@@ -1183,6 +1197,9 @@ with aba_dev:
                                 with st.expander(f"Tentativa {rodada.get('tentativa')}"):
                                     st.write("**Sugestão gerada:**")
                                     st.json(rodada.get("sugestao", {}))
+                                    if rodada.get("erros_geracao"):
+                                        st.write("**Erros ao gerar a sugestão:**")
+                                        st.json(rodada.get("erros_geracao", []))
                                     st.write("**Avaliações:**")
                                     st.json(rodada.get("avaliacoes", []))
 
@@ -1200,7 +1217,90 @@ with aba_dev:
                         )
 
                     except Exception as e:
+                        erro_txt = str(e)
+
+                        try:
+                            db_save_ia_error(
+                                origem="modo_programador_automatico",
+                                ia_que_falhou="desconhecida",
+                                tipo_erro="execucao_automatica",
+                                mensagem_erro=erro_txt,
+                                codigo_analisado=codigo_auto,
+                            )
+                        except Exception:
+                            pass
+
                         st.error(f"Erro no modo programador automático: {e}")
+
+        else:
+            st.markdown("## Erros da IA")
+
+            if st.button("Atualizar lista de erros"):
+                st.rerun()
+
+            erros_ia = db_list_ia_errors()
+
+            if not erros_ia:
+                st.info("Nenhum erro da IA salvo ainda.")
+            else:
+                for item in erros_ia:
+                    error_id = item["id"]
+                    origem = item.get("origem", "-")
+                    ia_que_falhou = item.get("ia_que_falhou", "-")
+                    tipo_erro = item.get("tipo_erro", "-")
+                    mensagem_erro = item.get("mensagem_erro", "-")
+                    codigo_analisado = item.get("codigo_analisado", "")
+                    status_resolucao = item.get("status_resolucao", "pendente")
+                    relatorio_json = item.get("relatorio_json") or {}
+
+                    with st.expander(f"Erro #{error_id} • {origem} • {status_resolucao}"):
+                        st.write(f"**IA que falhou:** {ia_que_falhou}")
+                        st.write(f"**Tipo do erro:** {tipo_erro}")
+                        st.write(f"**Mensagem:** {mensagem_erro}")
+
+                        if codigo_analisado:
+                            st.markdown("**Código analisado:**")
+                            st.code(codigo_analisado, language="python")
+
+                        if st.button(
+                            "Mandar erro para outras IAs resolverem",
+                            key=f"resolver_erro_{error_id}"
+                        ):
+                            try:
+                                with st.spinner("Enviando erro para análise multi-IA..."):
+                                    relatorio_erro = resolver_erro_multi_ia(
+                                        origem=origem,
+                                        ia_que_falhou=ia_que_falhou,
+                                        tipo_erro=tipo_erro,
+                                        mensagem_erro=mensagem_erro,
+                                        codigo_analisado=codigo_analisado,
+                                        openai_api_key=get_secret("OPENAI_API_KEY"),
+                                        xai_api_key=get_secret("XAI_API_KEY"),
+                                        gemini_api_key=get_secret("GEMINI_API_KEY"),
+                                    )
+
+                                    db_update_ia_error_report(
+                                        error_id=error_id,
+                                        relatorio_json=relatorio_erro,
+                                        status_resolucao="analisado"
+                                    )
+
+                                st.success("Erro enviado para as IAs e relatório salvo.")
+                                st.rerun()
+
+                            except Exception as e:
+                                st.error(f"Erro ao resolver com múltiplas IAs: {e}")
+
+                        if relatorio_json:
+                            st.markdown("### Relatório do erro")
+                            st.json(relatorio_json)
+
+                            for nome_ia, dados in relatorio_json.items():
+                                if isinstance(dados, dict) and "codigo_sugerido" in dados:
+                                    st.markdown(f"#### Código sugerido por {nome_ia}")
+                                    st.code(dados.get("codigo_sugerido", ""), language="python")
+                                    st.write(f"**Por que deu esse erro?** {dados.get('motivo_provavel', '-')}")
+                                    st.write(f"**Onde colocar:** {dados.get('onde_colocar', '-')}")
 
         st.markdown("---")
         st.markdown("### Relatórios salvos")
@@ -1246,4 +1346,4 @@ with aba_dev:
 st.markdown("---")
 st.caption("João Paulo-IA")
 st.caption("Desenvolvida por João Paulo")
-st.caption("Versão 3.5 com modo programador automático.")
+st.caption("Versão 3.6 com modo programador e resolução de erros da IA.")
