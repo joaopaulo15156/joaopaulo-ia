@@ -1,4 +1,3 @@
-import os
 import json
 from openai import OpenAI
 
@@ -17,8 +16,7 @@ def _extrair_json(texto: str) -> dict:
     return json.loads(texto)
 
 
-def revisar_codigo_xai(codigo: str) -> dict:
-    api_key = os.getenv("XAI_API_KEY")
+def revisar_codigo_xai(codigo: str, api_key: str) -> dict:
     if not api_key:
         raise ValueError("XAI_API_KEY não encontrada.")
 
@@ -48,7 +46,7 @@ Código:
 """
 
     resp = client.chat.completions.create(
-        model=os.getenv("XAI_REVIEW_MODEL", "grok-3"),
+        model="grok-3",
         messages=[
             {"role": "system", "content": "Responda apenas JSON válido."},
             {"role": "user", "content": prompt},
