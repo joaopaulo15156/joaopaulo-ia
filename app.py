@@ -1038,12 +1038,17 @@ with aba_dev:
                 else:
                     try:
                         with st.spinner("Consultando múltiplas IAs..."):
-                            resultados = revisar_codigo_multi_ia(
-                                codigo=codigo_dev,
-                                usar_openai=usar_openai,
-                                usar_xai=usar_xai,
-                                usar_gemini=usar_gemini,
-                                validar_sintaxe=validar_sintaxe,
+                           resultados = revisar_codigo_multi_ia(
+    codigo=codigo_dev,
+    openai_api_key=get_secret("OPENAI_API_KEY"),
+    xai_api_key=get_secret("XAI_API_KEY"),
+    gemini_api_key=get_secret("GEMINI_API_KEY"),
+    usar_openai=usar_openai,
+    usar_xai=usar_xai,
+    usar_gemini=usar_gemini,
+    validar_sintaxe=validar_sintaxe,
+)
+
                             )
                             relatorio_final = montar_relatorio_final(resultados)
 
