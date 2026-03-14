@@ -5,7 +5,7 @@ from services.ai_openai import revisar_codigo_openai
 from services.ai_xai import revisar_codigo_xai
 from services.ai_gemini import revisar_codigo_gemini
 from services.auto_programmer import (
-    gerar_sugestao_openai,
+    gerar_sugestao_com_fallback,
     avaliar_sugestao_openai,
     avaliar_sugestao_xai,
     avaliar_sugestao_gemini,
@@ -32,6 +32,9 @@ def validar_codigo_python(codigo: str) -> dict[str, Any]:
 
 def revisar_codigo_multi_ia(
     codigo: str,
+    openai_api_key: str = "",
+    xai_api_key: str = "",
+    gemini_api_key: str = "",
     usar_openai: bool = True,
     usar_xai: bool = True,
     usar_gemini: bool = True,
@@ -51,19 +54,19 @@ def revisar_codigo_multi_ia(
 
     if usar_openai:
         try:
-            resultados["openai"] = revisar_codigo_openai(codigo)
+            resultados["openai"] = revisar_codigo_openai(codigo, openai_api_key)
         except Exception as e:
             resultados["openai"] = {"erro": str(e)}
 
     if usar_xai:
         try:
-            resultados["xai"] = revisar_codigo_xai(codigo)
+            resultados["xai"] = revisar_codigo_xai(codigo, xai_api_key)
         except Exception as e:
             resultados["xai"] = {"erro": str(e)}
 
     if usar_gemini:
         try:
-            resultados["gemini"] = revisar_codigo_gemini(codigo)
+            resultados["gemini"] = revisar_codigo_gemini(codigo, gemini_api_key)
         except Exception as e:
             resultados["gemini"] = {"erro": str(e)}
 
@@ -77,8 +80,11 @@ def executar_modo_programador_automatico(
     gemini_api_key: str = "",
     max_tentativas: int = 3,
 ) -> dict:
-    if not openai_api_key:
-        raise ValueError("OPENAI_API_KEY não encontrada. Ela é obrigatória para gerar a sugestão inicial.")
+    if not openai_api_key and not xai_api_key and not gemini_api_key:
+        raise ValueError(
+            "Nenhuma chave configurada para gerar a sugestão inicial. "
+            "Configure OPENAI_API_KEY, XAI_API_KEY ou GEMINI_API_KEY."
+        )
 
     validacao_local = validar_codigo_python(codigo)
 
@@ -87,14 +93,21 @@ def executar_modo_programador_automatico(
     avaliacoes_escolhidas = None
 
     for tentativa in range(1, max_tentativas + 1):
-        sugestao = gerar_sugestao_openai(codigo, openai_api_key, tentativa)
+        sugestao, erros_geracao = gerar_sugestao_com_fallback(
+            codigo=codigo,
+            tentativa=tentativa,
+            openai_api_key=openai_api_key,
+            xai_api_key=xai_api_key,
+            gemini_api_key=gemini_api_key,
+        )
 
         avaliacoes = []
 
-        try:
-            avaliacoes.append(avaliar_sugestao_openai(sugestao, codigo, openai_api_key))
-        except Exception as e:
-            avaliacoes.append({"ia": "openai", "erro": str(e), "aprovado": False, "nota": 0})
+        if openai_api_key:
+            try:
+                avaliacoes.append(avaliar_sugestao_openai(sugestao, codigo, openai_api_key))
+            except Exception as e:
+                avaliacoes.append({"ia": "openai", "erro": str(e), "aprovado": False, "nota": 0})
 
         if xai_api_key:
             try:
@@ -114,6 +127,7 @@ def executar_modo_programador_automatico(
         rodada = {
             "tentativa": tentativa,
             "sugestao": sugestao,
+            "erros_geracao": erros_geracao,
             "avaliacoes": avaliacoes,
             "aprovadas": len(aprovadas),
             "reprovadas": len(reprovadas),
