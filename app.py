@@ -40,20 +40,22 @@ from services.search_service import (
     exibir_fontes_streamlit,
 )
 from services.chat_service import montar_contexto_chat
-from services.programmer_service import (
-    render_programmer_manual,
-    render_programmer_automatic,
-    render_programmer_errors,
+from services.code_review import (
+    revisar_codigo_multi_ia,
+    executar_modo_programador_automatico,
 )
+from services.report_builder import (
+    montar_relatorio_final,
+    extrair_patch_consolidado,
+)
+from services.error_solver import resolver_erro_multi_ia
 
 
 TIMEZONE = "America/Sao_Paulo"
-
 MODEL_TEXT = os.getenv("MODEL_TEXT", "llama-3.3-70b-versatile")
 MODEL_SECOND = os.getenv("MODEL_SECOND", "llama-3.1-8b-instant")
 MODEL_VISION = os.getenv("MODEL_VISION", "meta-llama/llama-4-scout-17b-16e-instruct")
 MODEL_TRANSCRIBE = os.getenv("MODEL_TRANSCRIBE", "whisper-large-v3-turbo")
-
 IMAGE_PROVIDERS = ["OpenAI", "Replicate", "HuggingFace"]
 
 SYSTEM_PROMPT_BASE = """
@@ -80,7 +82,6 @@ CUSTOM_CSS = """
 :root {
     --border: rgba(255,255,255,0.10);
     --card: rgba(255,255,255,0.06);
-    --card-strong: rgba(255,255,255,0.09);
     --text-soft: #d1d5db;
     --text-muted: #9ca3af;
 }
@@ -129,11 +130,9 @@ CUSTOM_CSS = """
     border-radius: 20px;
     padding: 16px 18px;
     margin-bottom: 12px;
-    box-shadow: 0 8px 22px rgba(0,0,0,0.18);
 }
 </style>
 """
-
 
 st.set_page_config(page_title="João Paulo-IA", page_icon="🧠", layout="wide")
 st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
@@ -166,7 +165,7 @@ def get_http() -> requests.Session:
     session = requests.Session()
     session.mount("http://", adapter)
     session.mount("https://", adapter)
-    session.headers.update({"User-Agent": "JoaoPaulo-IA/3.7"})
+    session.headers.update({"User-Agent": "JoaoPaulo-IA/4.0"})
     return session
 
 
@@ -478,9 +477,11 @@ if not chave_ok("GROQ_API_KEY"):
     st.stop()
 
 client = get_groq_client()
+
 if "persistent_session_id" not in st.session_state:
     raw = os.urandom(12)
     st.session_state.persistent_session_id = base64.urlsafe_b64encode(raw).decode().rstrip("=")
+
 session_id = st.session_state.persistent_session_id
 
 if "db_bootstrapped" not in st.session_state:
@@ -499,12 +500,11 @@ if "audio_prompt" not in st.session_state:
 if "segunda_opiniao" not in st.session_state:
     st.session_state.segunda_opiniao = ""
 
-
 st.markdown(
     f"""
     <div class="jp-hero">
-        <div class="jp-title">🧠 João Paulo-IA 3.7</div>
-        <div class="jp-sub">Versão modular com chat, imagem, áudio, PDF, programador e erros da IA.</div>
+        <div class="jp-title">🧠 João Paulo-IA 4.0</div>
+        <div class="jp-sub">Chat, imagem, áudio, PDF, programador avançado e análise de erros com múltiplas IAs.</div>
         <div class="jp-pill">Desenvolvida por João Paulo • Data atual: {data_longa_ptbr()}</div>
     </div>
     """,
@@ -513,7 +513,6 @@ st.markdown(
 
 with st.sidebar:
     st.header("Configurações")
-
     force_google = st.toggle("Forçar pesquisa no Google", value=False)
     deep_search = st.toggle("Pesquisa profunda com data exata", value=True)
     mostrar_fontes = st.toggle("Mostrar fontes da pesquisa", value=True)
@@ -522,7 +521,6 @@ with st.sidebar:
 
     st.markdown("---")
     st.subheader("Status das chaves")
-
     st.success("GROQ_API_KEY ok") if chave_ok("GROQ_API_KEY") else st.error("GROQ_API_KEY ausente")
     st.success("SERPAPI_KEY ok") if chave_ok("SERPAPI_KEY") else st.warning("SERPAPI_KEY ausente")
     st.success("SUPABASE ok") if supabase_disponivel(get_secret) else st.warning("SUPABASE não configurado")
@@ -542,7 +540,6 @@ with st.sidebar:
         st.session_state.audio_prompt = ""
         st.session_state.segunda_opiniao = ""
         st.rerun()
-
 
 aba_chat, aba_imagem, aba_gerar_img, aba_arquivos, aba_dev = st.tabs(
     ["💬 Conversar", "🖼 Analisar imagem", "🎨 Gerar imagem", "📄 PDF e histórico", "🛠 Programador"]
@@ -776,82 +773,234 @@ with aba_dev:
     else:
         st.success("Acesso liberado.")
 
-        st.markdown("## Modo Programador")
-        modo_programador = st.radio(
-            "Escolha o modo",
-            ["Manual", "Automático", "Erros da IA"],
-            horizontal=True,
-        )
+        subtabs = st.tabs(["🧪 Manual", "🤖 Automático", "🚨 Erros", "📁 Relatórios"])
 
-        codigo_padrao = Path(__file__).read_text(encoding="utf-8")
+        with subtabs[0]:
+            st.markdown("## Revisão manual multi-IA")
+            codigo_dev = st.text_area("Cole o código para análise", height=320, key="manual_codigo")
+            usar_openai = st.checkbox("Usar OpenAI", value=True, key="manual_openai")
+            usar_xai = st.checkbox("Usar xAI / Grok", value=True, key="manual_xai")
+            usar_gemini = st.checkbox("Usar Gemini", value=True, key="manual_gemini")
+            validar_sintaxe = st.checkbox("Validar sintaxe Python antes", value=True, key="manual_validar")
+            salvar_relatorio = st.checkbox("Salvar relatório no banco", value=True, key="manual_salvar")
 
-        if modo_programador == "Manual":
-            render_programmer_manual(
-                get_secret_func=get_secret,
-                data_curta_func=data_curta,
-                db_save_daily_report_func=lambda d, r: db_save_daily_report(get_supabase, get_secret, d, r),
-                db_save_ia_error_func=lambda **kwargs: db_save_ia_error(get_supabase, get_secret, **kwargs),
-            )
-
-        elif modo_programador == "Automático":
-            render_programmer_automatic(
-                get_secret_func=get_secret,
-                data_curta_func=data_curta,
-                db_save_daily_report_func=lambda d, r: db_save_daily_report(get_supabase, get_secret, d, r),
-                db_save_ia_error_func=lambda **kwargs: db_save_ia_error(get_supabase, get_secret, **kwargs),
-                codigo_padrao=codigo_padrao,
-            )
-
-        else:
-            render_programmer_errors(
-                get_secret_func=get_secret,
-                db_list_ia_errors_func=lambda: db_list_ia_errors(get_supabase, get_secret),
-                db_update_ia_error_report_func=lambda **kwargs: db_update_ia_error_report(get_supabase, get_secret, **kwargs),
-                db_mark_error_resolved_func=lambda error_id: db_mark_error_resolved(get_supabase, get_secret, error_id),
-            )
-
-        st.markdown("---")
-        st.markdown("### Relatórios salvos")
-
-        try:
-            relatorios = db_list_reports(get_supabase, get_secret)
-
-            if not relatorios:
-                st.info("Nenhum relatório salvo ainda.")
-            else:
-                for item in relatorios:
-                    report_date = item["report_date"]
-                    report_json = item["report_json"]
-
-                    with st.expander(f"Relatório {report_date}"):
-                        st.write(f"**Modo:** {report_json.get('modo', '-')}")
-                        st.write(f"**Resumo executivo:** {report_json.get('resumo_executivo', '-')}")
-                        st.write(f"**Melhor ação agora:** {report_json.get('melhor_acao_agora', '-')}")
-                        st.write(f"**Prioridade:** {report_json.get('prioridade', '-')}")
-                        st.write(f"**Onde mexer primeiro:** {report_json.get('onde_mexer_primeiro', '-')}")
-
-                        if report_json.get("vale_a_pena_implementar"):
-                            st.write(
-                                f"**Vale a pena implementar?:** "
-                                f"{report_json.get('vale_a_pena_implementar')}"
+            if st.button("Analisar com múltiplas IAs"):
+                if not codigo_dev.strip():
+                    st.warning("Cole um código para análise.")
+                else:
+                    try:
+                        with st.spinner("Consultando múltiplas IAs..."):
+                            resultados = revisar_codigo_multi_ia(
+                                codigo=codigo_dev,
+                                openai_api_key=get_secret("OPENAI_API_KEY"),
+                                xai_api_key=get_secret("XAI_API_KEY"),
+                                gemini_api_key=get_secret("GEMINI_API_KEY"),
+                                usar_openai=usar_openai,
+                                usar_xai=usar_xai,
+                                usar_gemini=usar_gemini,
+                                validar_sintaxe=validar_sintaxe,
                             )
+                            relatorio_final = montar_relatorio_final(resultados)
 
-                        st.write("**Patch recomendado:**")
-                        st.code(report_json.get("patch_recomendado", ""), language="python")
+                        st.markdown("### Relatório consolidado")
+                        st.json(relatorio_final)
 
-                        st.download_button(
-                            f"Baixar relatório {report_date}",
-                            data=json.dumps(report_json, ensure_ascii=False, indent=2),
-                            file_name=f"relatorio_{report_date}.json",
-                            mime="application/json",
-                            key=f"dl_{report_date}",
-                        )
+                        patch_consolidado = extrair_patch_consolidado(relatorio_final)
+                        if patch_consolidado:
+                            st.markdown("### Patch consolidado")
+                            st.code(patch_consolidado, language="python")
 
-        except Exception as e:
-            st.error(f"Erro ao listar relatórios: {e}")
+                        if salvar_relatorio:
+                            try:
+                                db_save_daily_report(get_supabase, get_secret, data_curta(), relatorio_final)
+                            except Exception as e:
+                                st.warning(f"Não foi possível salvar no banco: {e}")
 
+                    except Exception as e:
+                        erro_txt = str(e)
+                        try:
+                            db_save_ia_error(
+                                get_supabase,
+                                get_secret,
+                                origem="modo_programador_manual",
+                                ia_que_falhou="desconhecida",
+                                tipo_erro="analise_manual",
+                                mensagem_erro=erro_txt,
+                                codigo_analisado=codigo_dev,
+                            )
+                        except Exception:
+                            pass
+                        st.error(f"Erro na análise multi-IA: {e}")
+
+        with subtabs[1]:
+            st.markdown("## Geração automática de melhoria")
+            codigo_padrao = Path(__file__).read_text(encoding="utf-8")
+            usar_codigo_do_app = st.checkbox("Usar automaticamente o código atual do app", value=True)
+
+            if usar_codigo_do_app:
+                codigo_auto = codigo_padrao
+                st.text_area("Código detectado automaticamente", value=codigo_auto, height=220, disabled=True)
+            else:
+                codigo_auto = st.text_area("Cole o código para o modo automático", height=320)
+
+            max_tentativas = st.slider("Máximo de tentativas", 1, 5, 3)
+            salvar_automatico = st.checkbox("Salvar relatório no banco", value=True, key="auto_salvar")
+
+            if st.button("🚀 Gerar melhoria automática"):
+                if not codigo_auto.strip():
+                    st.warning("Não há código para analisar.")
+                else:
+                    try:
+                        with st.spinner("Gerando e validando melhoria automática..."):
+                            resultado_auto = executar_modo_programador_automatico(
+                                codigo=codigo_auto,
+                                openai_api_key=get_secret("OPENAI_API_KEY"),
+                                xai_api_key=get_secret("XAI_API_KEY"),
+                                gemini_api_key=get_secret("GEMINI_API_KEY"),
+                                max_tentativas=max_tentativas,
+                            )
+                            relatorio_final = montar_relatorio_final(resultado_auto)
+
+                        st.markdown("### Relatório automático final")
+                        st.json(relatorio_final)
+
+                        patch_consolidado = extrair_patch_consolidado(relatorio_final)
+                        if patch_consolidado:
+                            st.markdown("### Patch consolidado")
+                            st.code(patch_consolidado, language="python")
+
+                        if salvar_automatico:
+                            try:
+                                db_save_daily_report(get_supabase, get_secret, data_curta(), relatorio_final)
+                            except Exception as e:
+                                st.warning(f"Não foi possível salvar no banco: {e}")
+
+                    except Exception as e:
+                        erro_txt = str(e)
+                        try:
+                            db_save_ia_error(
+                                get_supabase,
+                                get_secret,
+                                origem="modo_programador_automatico",
+                                ia_que_falhou="desconhecida",
+                                tipo_erro="execucao_automatica",
+                                mensagem_erro=erro_txt,
+                                codigo_analisado=codigo_auto,
+                            )
+                        except Exception:
+                            pass
+                        st.error(f"Erro no modo programador automático: {e}")
+
+        with subtabs[2]:
+            st.markdown("## Erros da IA")
+            erros_ia = db_list_ia_errors(get_supabase, get_secret)
+
+            if not erros_ia:
+                st.info("Nenhum erro da IA salvo ainda.")
+            else:
+                status_opcoes = ["todos", "pendente", "analisado", "resolvido"]
+                origem_opcoes = ["todos"] + sorted(list({str(x.get("origem", "desconhecida")) for x in erros_ia}))
+                ia_opcoes = ["todos"] + sorted(list({str(x.get("ia_que_falhou", "desconhecida")) for x in erros_ia}))
+                categoria_opcoes = ["todos"] + sorted(list({str(x.get("categoria_erro", "outros")) for x in erros_ia}))
+
+                c1, c2, c3, c4 = st.columns(4)
+                with c1:
+                    filtro_status = st.selectbox("Filtrar por status", status_opcoes)
+                with c2:
+                    filtro_origem = st.selectbox("Filtrar por origem", origem_opcoes)
+                with c3:
+                    filtro_ia = st.selectbox("Filtrar por IA", ia_opcoes)
+                with c4:
+                    filtro_categoria = st.selectbox("Filtrar por categoria", categoria_opcoes)
+
+                erros_filtrados = []
+                for item in erros_ia:
+                    ok_status = filtro_status == "todos" or item.get("status_resolucao", "") == filtro_status
+                    ok_origem = filtro_origem == "todos" or item.get("origem", "") == filtro_origem
+                    ok_ia = filtro_ia == "todos" or item.get("ia_que_falhou", "") == filtro_ia
+                    ok_categoria = filtro_categoria == "todos" or item.get("categoria_erro", "") == filtro_categoria
+                    if ok_status and ok_origem and ok_ia and ok_categoria:
+                        erros_filtrados.append(item)
+
+                for item in erros_filtrados:
+                    error_id = item["id"]
+                    origem = item.get("origem", "-")
+                    ia_que_falhou = item.get("ia_que_falhou", "-")
+                    tipo_erro = item.get("tipo_erro", "-")
+                    mensagem_erro = item.get("mensagem_erro", "-")
+                    codigo_analisado = item.get("codigo_analisado", "")
+                    status_resolucao = item.get("status_resolucao", "pendente")
+                    categoria_erro = item.get("categoria_erro", "outros")
+                    relatorio_json = item.get("relatorio_json") or {}
+
+                    with st.expander(f"Erro #{error_id} • {origem} • {categoria_erro} • {status_resolucao}"):
+                        st.write(f"**IA que falhou:** {ia_que_falhou}")
+                        st.write(f"**Tipo do erro:** {tipo_erro}")
+                        st.write(f"**Categoria:** {categoria_erro}")
+                        st.write(f"**Mensagem:** {mensagem_erro}")
+
+                        if codigo_analisado:
+                            st.code(codigo_analisado, language="python")
+
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            if st.button("Mandar erro para outras IAs resolverem", key=f"resolver_erro_{error_id}"):
+                                try:
+                                    relatorio_erro = resolver_erro_multi_ia(
+                                        origem=origem,
+                                        ia_que_falhou=ia_que_falhou,
+                                        tipo_erro=tipo_erro,
+                                        mensagem_erro=mensagem_erro,
+                                        codigo_analisado=codigo_analisado,
+                                        openai_api_key=get_secret("OPENAI_API_KEY"),
+                                        xai_api_key=get_secret("XAI_API_KEY"),
+                                        gemini_api_key=get_secret("GEMINI_API_KEY"),
+                                    )
+
+                                    db_update_ia_error_report(
+                                        get_supabase,
+                                        get_secret,
+                                        error_id=error_id,
+                                        relatorio_json=relatorio_erro,
+                                        status_resolucao="analisado"
+                                    )
+                                    st.rerun()
+                                except Exception as e:
+                                    st.error(f"Erro ao resolver com múltiplas IAs: {e}")
+
+                        with col2:
+                            if st.button("Marcar como resolvido", key=f"resolver_status_{error_id}"):
+                                try:
+                                    db_mark_error_resolved(get_supabase, get_secret, error_id)
+                                    st.rerun()
+                                except Exception as e:
+                                    st.error(f"Erro ao marcar como resolvido: {e}")
+
+                        if relatorio_json:
+                            st.json(relatorio_json)
+
+        with subtabs[3]:
+            st.markdown("## Relatórios salvos")
+            try:
+                relatorios = db_list_reports(get_supabase, get_secret)
+                if not relatorios:
+                    st.info("Nenhum relatório salvo ainda.")
+                else:
+                    for item in relatorios:
+                        report_date = item["report_date"]
+                        report_json = item["report_json"]
+
+                        with st.expander(f"Relatório {report_date}"):
+                            st.write(f"**Modo:** {report_json.get('modo', '-')}")
+                            st.write(f"**Resumo executivo:** {report_json.get('resumo_executivo', '-')}")
+                            st.write(f"**Melhor ação agora:** {report_json.get('melhor_acao_agora', '-')}")
+                            st.write(f"**Prioridade:** {report_json.get('prioridade', '-')}")
+                            st.write(f"**Onde mexer primeiro:** {report_json.get('onde_mexer_primeiro', '-')}")
+                            st.code(report_json.get("patch_recomendado", ""), language="python")
+            except Exception as e:
+                st.error(f"Erro ao listar relatórios: {e}")
 
 st.markdown("---")
 st.caption("João Paulo-IA")
 st.caption("Desenvolvida por João Paulo")
-st.caption("Versão 3.7 modularizada.")
+st.caption("Versão 4.0 com modo programador avançado.")
