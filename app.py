@@ -1048,8 +1048,7 @@ with aba_dev:
     usar_gemini=usar_gemini,
     validar_sintaxe=validar_sintaxe,
 )
-
-                            )
+)
                             relatorio_final = montar_relatorio_final(resultados)
 
                         st.markdown("### Relatório consolidado")
