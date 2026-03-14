@@ -411,6 +411,7 @@ def db_insert_message(session_id: str, role: str, content: str):
 def db_load_messages(session_id: str, limit: int = 50) -> list[dict]:
     if not supabase_disponivel():
         return []
+
     supabase = get_supabase()
     resp = (
         supabase.table("chat_messages")
@@ -426,6 +427,7 @@ def db_load_messages(session_id: str, limit: int = 50) -> list[dict]:
 def db_upsert_memory(memory_key: str, memory_value: dict):
     if not supabase_disponivel():
         return
+
     supabase = get_supabase()
     supabase.table("user_memory").upsert({
         "memory_key": memory_key,
@@ -437,6 +439,7 @@ def db_upsert_memory(memory_key: str, memory_value: dict):
 def db_get_memory(memory_key: str) -> dict:
     if not supabase_disponivel():
         return {}
+
     supabase = get_supabase()
     resp = (
         supabase.table("user_memory")
@@ -453,6 +456,7 @@ def db_get_memory(memory_key: str) -> dict:
 def db_save_daily_report(report_date: str, report_json: dict):
     if not supabase_disponivel():
         return
+
     supabase = get_supabase()
     supabase.table("daily_reports").upsert({
         "report_date": report_date,
@@ -463,6 +467,7 @@ def db_save_daily_report(report_date: str, report_json: dict):
 def db_list_reports(limit: int = 15):
     if not supabase_disponivel():
         return []
+
     supabase = get_supabase()
     resp = (
         supabase.table("daily_reports")
@@ -793,9 +798,16 @@ with aba_chat:
                     else:
                         with st.spinner("Buscando informações atuais..."):
                             if deep_search:
-                                resultados = pesquisar_google(pergunta, get_secret("SERPAPI_KEY"), deep_search=True)
+                                resultados = pesquisar_google(
+                                    pergunta,
+                                    get_secret("SERPAPI_KEY"),
+                                    deep_search=True
+                                )
                             else:
-                                resultados = pesquisar_google_news(pergunta, get_secret("SERPAPI_KEY"))
+                                resultados = pesquisar_google_news(
+                                    pergunta,
+                                    get_secret("SERPAPI_KEY")
+                                )
 
                         if mostrar_fontes and resultados:
                             exibir_fontes(resultados)
@@ -869,6 +881,7 @@ with aba_chat:
 
                     if ultima_pergunta:
                         st.session_state.segunda_opiniao = gerar_segunda_opiniao(client, ultima_pergunta)
+
                 except Exception as e:
                     st.session_state.segunda_opiniao = f"Erro na segunda opinião: {e}"
 
@@ -901,9 +914,11 @@ with aba_imagem:
             try:
                 with st.spinner("Analisando imagem..."):
                     analise = analisar_imagem(client, uploaded_image, pergunta_imagem)
+
                 st.markdown("### Resultado da análise")
                 st.markdown(analise)
                 st.session_state.ultima_resposta = analise
+
             except Exception as e:
                 st.error(f"Erro ao analisar imagem: {e}")
 
@@ -929,6 +944,7 @@ with aba_gerar_img:
                     st.session_state.ultima_resposta = f"Imagem gerada com {image_provider}: {prompt_imagem}"
                 else:
                     st.error("O provedor retornou um formato inválido.")
+
             except Exception as e:
                 st.error(f"Erro ao gerar imagem: {e}")
 
@@ -1038,17 +1054,18 @@ with aba_dev:
                 else:
                     try:
                         with st.spinner("Consultando múltiplas IAs..."):
-                           resultados = revisar_codigo_multi_ia(
-    codigo=codigo_dev,
-    openai_api_key=get_secret("OPENAI_API_KEY"),
-    xai_api_key=get_secret("XAI_API_KEY"),
-    gemini_api_key=get_secret("GEMINI_API_KEY"),
-    usar_openai=usar_openai,
-    usar_xai=usar_xai,
-    usar_gemini=usar_gemini,
-    validar_sintaxe=validar_sintaxe,
-)
-relatorio_final = montar_relatorio_final(resultados)
+                            resultados = revisar_codigo_multi_ia(
+                                codigo=codigo_dev,
+                                openai_api_key=get_secret("OPENAI_API_KEY"),
+                                xai_api_key=get_secret("XAI_API_KEY"),
+                                gemini_api_key=get_secret("GEMINI_API_KEY"),
+                                usar_openai=usar_openai,
+                                usar_xai=usar_xai,
+                                usar_gemini=usar_gemini,
+                                validar_sintaxe=validar_sintaxe,
+                            )
+
+                            relatorio_final = montar_relatorio_final(resultados)
 
                         st.markdown("### Relatório consolidado")
                         st.json(relatorio_final)
@@ -1065,6 +1082,7 @@ relatorio_final = montar_relatorio_final(resultados)
                             file_name=f"relatorio_multi_ia_{data_curta()}.json",
                             mime="application/json",
                         )
+
                     except Exception as e:
                         st.error(f"Erro na análise multi-IA: {e}")
 
@@ -1093,10 +1111,13 @@ relatorio_final = montar_relatorio_final(resultados)
                 )
 
             col1, col2, col3 = st.columns(3)
+
             with col1:
                 max_tentativas = st.slider("Máximo de tentativas", 1, 5, 3)
+
             with col2:
                 salvar_automatico = st.checkbox("Salvar relatório no banco", value=True)
+
             with col3:
                 mostrar_rodadas = st.checkbox("Mostrar rodadas da análise", value=True)
 
@@ -1113,15 +1134,22 @@ relatorio_final = montar_relatorio_final(resultados)
                                 gemini_api_key=get_secret("GEMINI_API_KEY"),
                                 max_tentativas=max_tentativas,
                             )
+
                             relatorio_final = montar_relatorio_final(resultado_auto)
 
                         st.markdown("### Relatório automático final")
 
                         colm1, colm2, colm3 = st.columns(3)
+
                         with colm1:
-                            st.metric("Vale a pena implementar?", relatorio_final.get("vale_a_pena_implementar", "-"))
+                            st.metric(
+                                "Vale a pena implementar?",
+                                relatorio_final.get("vale_a_pena_implementar", "-")
+                            )
+
                         with colm2:
                             st.metric("Prioridade", relatorio_final.get("prioridade", "-"))
+
                         with colm3:
                             st.metric("Rodadas", len(relatorio_final.get("rodadas", [])))
 
@@ -1170,13 +1198,16 @@ relatorio_final = montar_relatorio_final(resultados)
                             file_name=f"relatorio_auto_{data_curta()}.json",
                             mime="application/json",
                         )
+
                     except Exception as e:
                         st.error(f"Erro no modo programador automático: {e}")
 
         st.markdown("---")
         st.markdown("### Relatórios salvos")
+
         try:
             relatorios = db_list_reports()
+
             if not relatorios:
                 st.info("Nenhum relatório salvo ainda.")
             else:
@@ -1190,10 +1221,16 @@ relatorio_final = montar_relatorio_final(resultados)
                         st.write(f"**Melhor ação agora:** {report_json.get('melhor_acao_agora', '-')}")
                         st.write(f"**Prioridade:** {report_json.get('prioridade', '-')}")
                         st.write(f"**Onde mexer primeiro:** {report_json.get('onde_mexer_primeiro', '-')}")
+
                         if report_json.get("vale_a_pena_implementar"):
-                            st.write(f"**Vale a pena implementar?:** {report_json.get('vale_a_pena_implementar')}")
+                            st.write(
+                                f"**Vale a pena implementar?:** "
+                                f"{report_json.get('vale_a_pena_implementar')}"
+                            )
+
                         st.write("**Patch recomendado:**")
                         st.code(report_json.get("patch_recomendado", ""), language="python")
+
                         st.download_button(
                             f"Baixar relatório {report_date}",
                             data=json.dumps(report_json, ensure_ascii=False, indent=2),
@@ -1201,6 +1238,7 @@ relatorio_final = montar_relatorio_final(resultados)
                             mime="application/json",
                             key=f"dl_{report_date}",
                         )
+
         except Exception as e:
             st.error(f"Erro ao listar relatórios: {e}")
 
