@@ -1,1 +1,9 @@
-
+streamlit
+requests
+replicate
+groq
+openai
+supabase
+reportlab
+urllib3
+google-genai
