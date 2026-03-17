@@ -1,1 +1,8 @@
-
+fastapi
+uvicorn
+python-multipart
+openai
+groq
+reportlab
+pydantic
+requests
