@@ -1,1 +1,5 @@
-
+{
+  "commands": [
+    "python -m py_compile managed_project/app_logic.py managed_project/utils.py"
+  ]
+}
